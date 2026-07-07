@@ -1,49 +1,51 @@
 import os
+import sys
+import time
 import threading
+import traceback
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+_bot_status = "starting"
+_bot_error  = ""
 
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200)
+        code = 200 if _bot_status in ("starting", "running") else 503
+        self.send_response(code)
         self.end_headers()
-        self.wfile.write(b"OK")
+        body = f"status={_bot_status}"
+        if _bot_error:
+            body += f"\n{_bot_error}"
+        self.wfile.write(body.encode())
 
     def log_message(self, format, *args):
-        pass  # silence access logs
-
-
-_health_ready = threading.Event()
+        pass
 
 
 def start_health_server():
-    """Bind the HTTP health server and signal when ready."""
     port = int(os.environ.get("PORT", 8080))
     try:
         server = HTTPServer(("0.0.0.0", port), HealthHandler)
         print(f"[health] Listening on port {port}", flush=True)
-        _health_ready.set()          # unblock the main thread
         server.serve_forever()
     except OSError as exc:
-        print(f"[health] Could not bind to port {port}: {exc}", flush=True)
-        _health_ready.set()          # still unblock so main thread proceeds
+        print(f"[health] Bind failed: {exc}", flush=True)
 
 
-# ── 1. Start health server in a daemon thread ─────────────────────────────────
-# Daemon: it exits automatically when the main thread (bot) exits, so Render
-# sees the process die and restarts the service on bot crash.
-health_thread = threading.Thread(target=start_health_server, daemon=True)
+# NON-daemon so the process keeps running even after the main-thread bot exits.
+# This lets us read crash details via the health endpoint.
+health_thread = threading.Thread(target=start_health_server, daemon=False)
 health_thread.start()
+time.sleep(0.5)  # give the server a moment to bind
 
-# Wait until the port is actually bound (typically <10 ms).
-# This guarantees Render's health probe sees an open port before we spend
-# time on the bot's Telegram connection.
-_health_ready.wait(timeout=5)
-
-# ── 2. Run the bot in the MAIN thread ────────────────────────────────────────
-# Pyrogram's Client.run() installs OS signal handlers (SIGINT/SIGTERM) via
-# Python's signal module, which only works in the main thread.  Running the
-# bot here keeps everything correct and lets the process exit cleanly on crash
-# so Render auto-restarts the service.
-from bot import Bot
-Bot().run()
+import logging
+try:
+    from bot import Bot
+    _bot_status = "running"
+    Bot().run()
+    _bot_status = "stopped"
+except Exception:
+    _bot_status = "crashed"
+    _bot_error  = traceback.format_exc()
+    logging.error("[bot] crashed:\n%s", _bot_error)
