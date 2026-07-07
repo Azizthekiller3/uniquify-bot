@@ -1,0 +1,9 @@
+# Pyrogram session files — contain auth material, must not be committed
+*.session
+*.session-journal
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.env
