@@ -2,8 +2,6 @@ import os
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from bot import Bot
-
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -12,33 +10,41 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"OK")
 
     def log_message(self, format, *args):
-        # Suppress noisy access logs from the health pings
-        pass
+        pass  # silence access logs
 
 
 def run_bot():
-    """Run the bot in a background thread with its own asyncio event loop."""
+    """Import and run the bot inside the daemon thread.
+
+    Importing here (not at module top-level) means any import error or
+    startup crash is isolated to this thread and won't prevent the HTTP
+    health server from binding its port.
+    """
+    import logging
     try:
+        from bot import Bot
         Bot().run()
     except Exception as exc:
-        import logging
-        logging.error(f"[bot] crashed: {exc}", exc_info=True)
-        # Don't kill the process — keep the health server alive so Render
-        # doesn't mark the service as down.
+        logging.error("[bot] crashed: %s", exc, exc_info=True)
+    # Process stays alive because the main thread owns the HTTP server.
 
 
-# Start the bot in a daemon thread (exits automatically when the process stops).
-bot_thread = threading.Thread(target=run_bot, daemon=True)
-bot_thread.start()
-
-# Run the HTTP health server in the MAIN thread so the process stays alive
-# even if the bot crashes.  Render's free web service requires an open HTTP
-# port; UptimeRobot pings it every 5 minutes to prevent the service sleeping.
+# ── 1. Bind the health server FIRST, before any bot imports ──────────────────
 port = int(os.environ.get("PORT", 8080))
 try:
     server = HTTPServer(("0.0.0.0", port), HealthHandler)
-    print(f"[health] Listening on port {port}")
-    server.serve_forever()
+    print(f"[health] Listening on port {port}", flush=True)
 except OSError as exc:
-    print(f"[health] Could not bind to port {port}: {exc} — waiting for bot thread")
-    bot_thread.join()  # Fall back: keep process alive until bot exits naturally
+    print(f"[health] Could not bind to port {port}: {exc}", flush=True)
+    server = None
+
+# ── 2. Start bot in a daemon thread ──────────────────────────────────────────
+bot_thread = threading.Thread(target=run_bot, daemon=True)
+bot_thread.start()
+
+# ── 3. Serve health checks on the main thread (keeps process alive) ──────────
+if server:
+    server.serve_forever()
+else:
+    # Fallback: keep the process alive until the bot thread finishes.
+    bot_thread.join()
