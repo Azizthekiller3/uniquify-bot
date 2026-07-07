@@ -16,22 +16,29 @@ class HealthHandler(BaseHTTPRequestHandler):
         pass
 
 
-def start_health_server():
-    port = int(os.environ.get("PORT", 8080))
+def run_bot():
+    """Run the bot in a background thread with its own asyncio event loop."""
     try:
-        server = HTTPServer(("0.0.0.0", port), HealthHandler)
-        server.serve_forever()
-    except OSError as e:
-        # Port already in use (e.g. local dev env) — health server skipped.
-        # On Render, PORT is assigned dynamically and will always be free.
-        print(f"[health] Could not bind to port {port}: {e} — skipping health server")
+        Bot().run()
+    except Exception as exc:
+        import logging
+        logging.error(f"[bot] crashed: {exc}", exc_info=True)
+        # Don't kill the process — keep the health server alive so Render
+        # doesn't mark the service as down.
 
 
-# Start the health server in a daemon thread so it exits automatically
-# when the bot process stops. Render's free tier requires an open HTTP
-# port to classify this as a web service (not a paid background worker).
-# UptimeRobot then pings this endpoint every 5 minutes to keep it awake.
-thread = threading.Thread(target=start_health_server, daemon=True)
-thread.start()
+# Start the bot in a daemon thread (exits automatically when the process stops).
+bot_thread = threading.Thread(target=run_bot, daemon=True)
+bot_thread.start()
 
-Bot().run()
+# Run the HTTP health server in the MAIN thread so the process stays alive
+# even if the bot crashes.  Render's free web service requires an open HTTP
+# port; UptimeRobot pings it every 5 minutes to prevent the service sleeping.
+port = int(os.environ.get("PORT", 8080))
+try:
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    print(f"[health] Listening on port {port}")
+    server.serve_forever()
+except OSError as exc:
+    print(f"[health] Could not bind to port {port}: {exc} — waiting for bot thread")
+    bot_thread.join()  # Fall back: keep process alive until bot exits naturally
