@@ -87,6 +87,12 @@ async def delete_duplicates(c: Bot, m: Message):
     id_index = []
     duplicates = delay = count = int()
     id = int(m.from_user.id)
+    # Defense in depth: /purge is the most destructive command (mass-deletes
+    # messages). Don't rely solely on /chat having gated the `chat` dict —
+    # check authorization independently here too.
+    if id not in Config.AUTH_USERS:
+        await m.reply_text(Presets.NOT_AUTH_TXT, reply_markup=reply_markup_close)
+        return
     purge_status[id] = id
     msg1 = await m.reply_text(Presets.PROCESSING_MSG)
     await asyncio.sleep(1)
