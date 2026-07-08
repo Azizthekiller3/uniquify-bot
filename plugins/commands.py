@@ -115,6 +115,15 @@ async def delete_duplicates(c: Bot, m: Message):
                 )
                 return
             if message and (not message.empty) and (id in purge_status):
+                LOGGER(__name__).info(
+                    f"[purge-debug] msg_id={message.id} empty={message.empty} "
+                    f"media_enum={message.media} service={message.service} "
+                    f"has_video={message.video is not None} "
+                    f"has_document={message.document is not None} "
+                    f"has_photo={message.photo is not None} "
+                    f"has_animation={message.animation is not None} "
+                    f"has_audio={message.audio is not None}"
+                )
                 for file_type in tuple(Presets.FILE_TYPES):
                     media = getattr(message, file_type, None)
                     if media is not None:
