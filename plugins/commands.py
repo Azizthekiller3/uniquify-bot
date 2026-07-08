@@ -9,9 +9,9 @@ from pyrogram.types import Message
 from support.buttons import reply_markup_cancel, reply_markup_close, reply_markup_start
 
 if exists("config.py"):
-    from config import Config
+    from config import Config, LOGGER
 else:
-    from sample_config import Config
+    from sample_config import Config, LOGGER
 
 purge_status = {}
 chat = {}
@@ -119,6 +119,11 @@ async def delete_duplicates(c: Bot, m: Message):
                     media = getattr(message, file_type, None)
                     if media is not None:
                         uid = str(media.file_unique_id)
+                        LOGGER(__name__).info(
+                            f"[purge-debug] msg_id={message.id} type={file_type} "
+                            f"uid={uid} file_name={getattr(media, 'file_name', None)} "
+                            f"size={getattr(media, 'file_size', None)}"
+                        )
                         if uid in id_index:
                             deleted = False
                             try:
