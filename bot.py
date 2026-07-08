@@ -34,8 +34,8 @@ class Bot(Client):
         )
         self.LOGGER = LOGGER
 
-    async def start(self):
-        await super().start()
+    async def start(self, *args, **kwargs):
+        await super().start(*args, **kwargs)
         usr_bot_me = await self.get_me()
         self.set_parse_mode(enums.ParseMode.HTML)
         await self.set_bot_commands(BOT_COMMANDS)
